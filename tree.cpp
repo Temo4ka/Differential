@@ -238,8 +238,8 @@ TreeNode* diffPow(TreeNode *node, int *err) {
     catchNullptr(node, nullptr);
 
     TreeNode  *result  =          nullptr            ;
-    TreeNode *varLeft  = treeFindVarriable(node, err);
-    TreeNode *varRight = treeFindVarriable(node, err);
+    TreeNode *varLeft  = treeFindVarriable(nLeft(node) , err);
+    TreeNode *varRight = treeFindVarriable(nRight(node), err);
 
     if (varLeft != nullptr && varRight != nullptr) {
         TreeNode *one = nullptr;
@@ -317,30 +317,27 @@ int treeMakeSimpleOperand(TreeNode **node, enum OperandType type) {
 
     int err = EXIT_SUCCESS;
 
-    TreeNode *leftSon  =  nLeft(*node);
-    TreeNode *rightSon = nRight(*node);
-
-    if (nType(leftSon) == Numeral && nType(rightSon) == Numeral) {
+    if (nType(nLeft(*node)) == Numeral && nType(nRight(*node)) == Numeral) {
         double newData = 0;
         switch(type) {
             case Add:
-                newData = nNum(leftSon) + nNum(rightSon);
+                newData = nNum(nLeft(*node)) + nNum(nRight(*node));
                 break;
             
             case Sub:
-                newData = nNum(leftSon) - nNum(rightSon);
+                newData = nNum(nLeft(*node)) - nNum(nRight(*node));
                 break;
             
             case Mul:
-                newData = nNum(leftSon) * nNum(rightSon);
+                newData = nNum(nLeft(*node)) * nNum(nRight(*node));
                 break;
             
             case Div:
-                newData = nNum(leftSon) / nNum(rightSon);
+                newData = nNum(nLeft(*node)) / nNum(nRight(*node));
                 break;
 
             case Pow:
-                newData = pow(nNum(leftSon), nNum(rightSon));
+                newData = pow(nNum(nLeft(*node)), nNum(nRight(*node)));
                 break;
             
             default: return TreeUnknownOperand;
@@ -348,22 +345,82 @@ int treeMakeSimpleOperand(TreeNode **node, enum OperandType type) {
 
         err |= treeNodeDtor(*node);
         err |= newNumNode(node, Numeral, newData);
-
     }
 
+    if (type == Pow)
+        return treeMakeSimplePow(node);
+    
+    if (type == Mul)
+        return treeMakeSimpleMul(node);
+
+    if (type == Div)
+        return treeMakeSimpleDiv(node);
+
+    //Add or Sub
     double neutral = 0;
 
-    if (type == Mul || type == Div)
-        neutral = 1;
-
-    fprintf(stderr, "!%d", neutral);
-
-    if (nType(leftSon) == Numeral && nNum(leftSon) == neutral) 
+    if (nType(nLeft(*node)) == Numeral && nNum(nLeft(*node)) == neutral) 
         err |= treeMakeAncRgt(node);
-    if (nType(rightSon) == Numeral && nNum(rightSon) == neutral)
+    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == neutral)
         err |= treeMakeAncLft(node);
+    //
     
     return err;
+}
+
+int treeMakeSimplePow(TreeNode **node) {
+    catchNullptr( node, TreeIsNull);
+    catchNullptr(*node, TreeIsNull);
+
+    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 1)
+        return treeMakeAncLft(node);
+
+    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 0) {
+        // fprintf(stderr, "here!\n");
+        int err  = treeNodeDtor(*node);
+            err |= newNumNode(node, Numeral, 1);
+
+        return err;
+    }
+
+    if (nType(nLeft(*node)) == Numeral && (nNum(nLeft(*node)) == 1 || nNum(nLeft(*node)) == 0))
+        return treeMakeAncLft(node);
+    
+    return TreeIsOk;
+}
+
+int treeMakeSimpleMul(TreeNode **node) {
+    catchNullptr( node, TreeIsNull);
+    catchNullptr(*node, TreeIsNull);
+
+    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 1)
+        return treeMakeAncLft(node);
+    if (nType(nLeft(*node)) == Numeral  && nNum(nLeft(*node))  == 1)
+        return treeMakeAncRgt(node);
+
+    if (nType(nRight(*node)) == Numeral && (nNum(nRight(*node)) == 0 || nNum(nLeft(*node)) == 0)) {
+        int err  = treeNodeDtor(*node);
+            err |= newNumNode(node, Numeral, 0);
+
+        return err;
+    }
+    
+    return TreeIsOk;
+}
+
+int treeMakeSimpleDiv(TreeNode **node) {
+    catchNullptr( node, TreeIsNull);
+    catchNullptr(*node, TreeIsNull);
+
+    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 0) return TreeDivisionByZero;
+
+    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 1)
+        return treeMakeAncLft(node);
+
+    if (nType(nLeft(*node)) == Numeral  && nNum(nLeft(*node)) == 0)
+        return treeMakeAncLft(node);
+    
+    return TreeIsOk;
 }
 
 static int treeMakeAncRgt(TreeNode **node) {

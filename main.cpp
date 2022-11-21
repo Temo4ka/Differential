@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
         
         default: break;
     }
-    size_t pic = 1;
+    size_t pic = 0;
 
     Tree head = {};
     err = treeCtor(&head);
@@ -28,12 +28,25 @@ int main(int argc, char *argv[]) {
     err = treeLoadBase(&head, inputFileName);
     if (err) return EXIT_FAILURE;
 
-    treeGraphVizDump(&head, "logs/graph.dot", pic);
+    treeGraphVizDump(&head, "logs/graph.dot", ++pic);
+    
 
-    TreeNode *node = treeDifferential(head.tree, &err);
+    Tree difTree = {};
+    err = treeCtor(&difTree);
     if (err) return EXIT_FAILURE;
 
-    err = treePrintEquat(&head, outputFileName);
+
+    difTree.tree = treeDifferential(head.tree, &err);
+    if (err) return EXIT_FAILURE;
+
+    treeGraphVizDump(&difTree, "logs/graph.dot", ++pic);
+
+    err = treeMakeSimple(&(difTree.tree));
+    if (err) return EXIT_FAILURE;
+
+    treeGraphVizDump(&difTree, "logs/graph.dot", ++pic);
+
+    err = treePrintEquat(&difTree, outputFileName);
     if (err) return EXIT_FAILURE;
 
     return EXIT_SUCCESS;
