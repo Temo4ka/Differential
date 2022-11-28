@@ -1,4 +1,5 @@
 #include "source/tree.h"
+#include "source/latex.h"
 #include "source/config.h"
 #include "source/DSL.h"
 #include <cstdarg>
@@ -25,27 +26,33 @@ int newOpNode (TreeNode **node, enum NodeType type, char   nodeData) {
 int treeVarNodeCtor(TreeNode *node, enum NodeType nodeType, char *nodeData) {
     catchNullptr(node, TreeIsNull);
 
-    node ->  rgt   =  nullptr;
-    node ->  lft   =  nullptr;
+    node -> nodeName =  nullptr;
 
-    node ->     type      = nodeType;
-    node ->  data.var = nodeData;
+    node ->   lft    =  nullptr;
+    node ->   rgt    =  nullptr;
+    node ->   size   =     1   ;
 
-    node -> status =  Active ;
+    node ->   type   = nodeType;
+    node -> data.var = nodeData;
+
+    node ->  status  =  Active ;
 
     return TreeIsOk;
 }
 
-int treeNumNodeCtor(TreeNode *node, enum NodeType nodeType, double nodeData) {
+int treeNumNodeCtor(TreeNode *node, enum NodeType nodeType, Elem_t nodeData) {
     catchNullptr(node, TreeIsNull);
 
-    node ->    rgt    =  nullptr;
-    node ->    lft    =  nullptr;
+    node -> nodeName =  nullptr;
 
-    node ->    type   = nodeType;
+    node ->   lft    =  nullptr;
+    node ->   rgt    =  nullptr;
+    node ->   size   =     1   ;
+
+    node ->   type   = nodeType;
     node ->  data.num = nodeData;
 
-    node ->  status   =  Active ;
+    node ->  status  =  Active ;
 
     return TreeIsOk;
 }
@@ -53,13 +60,16 @@ int treeNumNodeCtor(TreeNode *node, enum NodeType nodeType, double nodeData) {
 int treeOpNodeCtor(TreeNode *node, enum NodeType nodeType, char nodeData) {
     catchNullptr(node, TreeIsNull);
 
-    node ->  rgt   =  nullptr;
-    node ->  lft   =  nullptr;
+    node -> nodeName =  nullptr;
+
+    node ->   lft    =  nullptr;
+    node ->   rgt    =  nullptr;
+    node ->   size   =     1   ;
 
     node ->   type   = nodeType;
     node ->  data.op = nodeData;
 
-    node -> status =  Active ;
+    node ->  status  =  Active ;
 
     return TreeIsOk;
 }
@@ -102,73 +112,137 @@ int treeNodeDtor(TreeNode *node) {
 
     int err = TreeIsOk;
 
-    if (nRight(node) != nullptr) 
-        err |= treeNodeDtor(nRight(node));
+    if (R(node) != nullptr) 
+        err |= treeNodeDtor(R(node));
 
-    if (nLeft(node) != nullptr)
-        err |= treeNodeDtor(nLeft(node));
+    if (L(node) != nullptr)
+        err |= treeNodeDtor(L(node));
 
     free(node);
     
     return err;
 }
 
-TreeNode* treeDifferential(TreeNode *node, int *err) {
+TreeNode* treeDifferential(TreeNode *node, Vocabulary *varList, int *err, FILE *stream) {
     catchNullptr(node, nullptr);
 
     TreeNode *result = nullptr;
-
 
     switch (nType(node)) {
         case Numeral:
             *err |= newNumNode(&result, Numeral, 0);
             if (*err) return nullptr;
 
-            return result;
+            break;
         
         case Varriable: 
             *err |= newNumNode(&result, Numeral, 1);
             if (*err) return nullptr;
 
-            return result;
+            break;
 
         case Operand:
             switch(nOp(node)) {
-                case Add: return ADD(dL, dR);
-                case Sub: return SUB(dL, dR);
-                case Mul: return ADD(MUL(dL, cR), MUL(cL, dR));
-                case Div: return DIV(SUB(MUL(dL, cR), MUL(cL, dR)), MUL(cR, cR));
-                case Sin: return MUL(COS(cR), dR);
-                case Cos: return MUL(NEG(SIN(cR)), dR);
-                case Log: return MUL(REV(cR), dR);
-                case Pow: return diffPow(node, err);
+                case Add: 
+                    result = ADD(dL, dR);
+                    break;
+                case Sub: 
+                    result = SUB(dL, dR);
+                    break;
+                case Mul: 
+                    result = ADD(MUL(dL, cR), MUL(cL, dR));
+                    break;
+                case Div: 
+                    result = DIV(SUB(MUL(dL, cR), MUL(cL, dR)), MUL(cR, cR));
+                    break;
+                case Sin: 
+                    result = MUL(COS(cR), dR);
+                    break;
+                case Cos: 
+                    result = MUL(NEG(SIN(cR)), dR);
+                    break;
+                case Log: 
+                    result = MUL(REV(cR), dR);
+                    break;
+                case Pow: 
+                    result = diffPow(node, varList, err, stream);
+                    break;
 
-                default: return nullptr;
+                default:
+                    result = nullptr;
+                    break;
             }
         
-        default: return nullptr;
+        default: break;
     }
+    // updateNode(result, varList);
+
+    if (result != nullptr && stream != nullptr) {
+        updateNode(node, varList);
+        fprintf(stream, "%s$$(", bundles[rand() % 20]);
+        *err |= treePrintNode(node, varList, stream, 1);
+        fprintf(stream, ")^\\prime = ");
+        *err |= treePrintNode(result, varList, stream, 1);
+        fprintf(stream, "$$\n");
+        // fprintf(stderr, "%d - %d!\n", curDes, DESES.usedDes);
+        if (DESES.usedDes) {
+            fprintf(stream, "Где ");
+            for (size_t curDes = 0; curDes < DESES.usedDes; curDes++) {
+                fprintf(stream, "$%s = ", DESES.desig[curDes]);
+                *err |= treePrintNode(DESES.nodes[curDes], varList, stream, 0);
+                // fprintf(stderr, "HERE %d!\n", DESES.usedDes);
+                fprintf(stream, "$,\\; \n");
+            }
+            fprintf(stream, "\\\\\\\\\\\\\n");
+        }
+
+        DESES.usedDes = 0;
+    }
+    
+    return result;
 }
 
-TreeNode* treeCopy(TreeNode *node, int *err) {
+TreeNode* treeCopy(TreeNode *node, Vocabulary *varList, int *err) {
     catchNullptr(node, nullptr);
+
+    TreeNode *result = nullptr;
 
     if (nType(node) == Operand) {
         switch(nOp(node)) {
-            case Add: return ADD(cL, cR);
-            case Sub: return SUB(cL, cR);
-            case Mul: return MUL(cL, cR);
-            case Div: return DIV(cL, cR);
-            case Pow: return POW(cL, cR);
-            case Cos: return COS(cR);
-            case Sin: return SIN(cR);
-            case Log: return LOG(cR);
+            case Add: 
+                result = ADD(cL, cR);
+                break;                
+            case Sub: 
+                result = SUB(cL, cR);
+                break;                
+            case Mul: 
+                result = MUL(cL, cR);
+                break;                
+            case Div: 
+                result = DIV(cL, cR);
+                break;                
+            case Pow: 
+                result = POW(cL, cR);
+                break;                
+            case Cos: 
+                result = COS(cR);
+                break;                
+            case Sin: 
+                result = SIN(cR);
+                break;                
+            case Log: 
+                result = LOG(cR);
+                break;                
 
-            default: return nullptr;
+            default:  
+                result = nullptr;
+                break;
         }
-    }
 
-    TreeNode *result = nullptr;
+        // updateNode(result, varList);
+
+        return result;
+    }
 
     if (nType(node) == Numeral)
         *err |= newNumNode(&result, nType(node), nNum(node));
@@ -178,6 +252,8 @@ TreeNode* treeCopy(TreeNode *node, int *err) {
         *err = TreeTypeIsNone;
 
     if (*err) return nullptr;
+
+    // updateNode(result, varList);
 
     return result;
 }
@@ -190,8 +266,8 @@ TreeNode *treeDoubleArgumentOper(TreeNode *node1, TreeNode *node2, enum OperandT
     *err = newOpNode(&result, Operand, type);
     if (*err) return nullptr;
 
-    nLeft(result) = node1;
-    nRight(result) = node2;
+    L(result) = node1;
+    R(result) = node2;
 
     return result;
 }
@@ -203,7 +279,10 @@ TreeNode *treeOneArgumentOper(TreeNode *node, enum OperandType type, int *err) {
     *err = newOpNode(&result, Operand, type);
     if (*err) return nullptr;
 
-    nRight(result) = node;
+       
+    //----------------------
+    R(result) = node;
+    //----------------------
 
     return result;
 }
@@ -213,10 +292,10 @@ TreeNode *treeNeg(TreeNode *node, int *err) {
 
     TreeNode *result = nullptr;
     *err |= newOpNode(&result, Operand, Mul);
-    *err |= newNumNode(&(nLeft(result)), Numeral, -1);
+    *err |= newNumNode(&(L(result)), Numeral, -1);
     if (*err) return nullptr;
 
-    nRight(result) = node;
+    R(result) = node;
 
     return result;
 }
@@ -226,20 +305,20 @@ TreeNode *treeRev(TreeNode *node, int *err) {
 
     TreeNode *result = nullptr;
     *err |= newOpNode(&result, Operand, Div);
-    *err |= newNumNode(&(nLeft(result)), Numeral, 1);
+    *err |= newNumNode(&(L(result)), Numeral, 1);
     if (*err) return nullptr;
 
-    nRight(result) = node;
+    R(result) = node;
 
     return result;
 }
 
-TreeNode* diffPow(TreeNode *node, int *err) {
+TreeNode* diffPow(TreeNode *node, Vocabulary *varList, int *err, FILE *stream) {
     catchNullptr(node, nullptr);
 
     TreeNode  *result  =          nullptr            ;
-    TreeNode *varLeft  = treeFindVarriable(nLeft(node) , err);
-    TreeNode *varRight = treeFindVarriable(nRight(node), err);
+    TreeNode *varLeft  = treeFindVarriable(L(node) , err);
+    TreeNode *varRight = treeFindVarriable(R(node), err);
 
     if (varLeft != nullptr && varRight != nullptr) {
         TreeNode *one = nullptr;
@@ -247,7 +326,7 @@ TreeNode* diffPow(TreeNode *node, int *err) {
 
         return ADD(MUL(dL, d_aX), MUL(dR, d_xA));
     }
-    if (varLeft == nullptr)
+    if (varLeft == nullptr) 
         return d_aX;
     if (varRight == nullptr) {
         TreeNode *one = nullptr;
@@ -261,7 +340,7 @@ TreeNode* diffPow(TreeNode *node, int *err) {
     return result;
 }
 
-int treeMakeSimple(TreeNode **node) {
+int treeSimplify(TreeNode **node) {
     catchNullptr(node, TreeIsNull);
 
     if (nType(*node) == Numeral || nType(*node) == Varriable)
@@ -269,11 +348,12 @@ int treeMakeSimple(TreeNode **node) {
 
     int err = EXIT_SUCCESS;
 
-    if (nLeft(*node) != nullptr)
-        err |= treeMakeSimple(&(nLeft(*node)));
+
+    if (L(*node) != nullptr)
+        err |= treeSimplify(&(L(*node)));
     
-    if (nRight(*node) != nullptr)
-        err |= treeMakeSimple(&(nRight(*node)));
+    if (R(*node) != nullptr)
+        err |= treeSimplify(&(R(*node)));
 
     if (err) return err;
 
@@ -312,32 +392,33 @@ static treeMakeAncLft(TreeNode **node);
 int treeMakeSimpleOperand(TreeNode **node, enum OperandType type) {
     catchNullptr(node, TreeIsNull);
 
-    if (nLeft(*node) == nullptr || nRight(*node) == nullptr)
+    if (R(*node) == nullptr)
         return EXIT_SUCCESS;
 
     int err = EXIT_SUCCESS;
 
-    if (nType(nLeft(*node)) == Numeral && nType(nRight(*node)) == Numeral) {
-        double newData = 0;
+
+    if (nType(L(*node)) == Numeral && nType(R(*node)) == Numeral) {
+        Elem_t newData = 0;
         switch(type) {
             case Add:
-                newData = nNum(nLeft(*node)) + nNum(nRight(*node));
+                newData = nNum(L(*node)) + nNum(R(*node));
                 break;
             
             case Sub:
-                newData = nNum(nLeft(*node)) - nNum(nRight(*node));
+                newData = nNum(L(*node)) - nNum(R(*node));
                 break;
             
             case Mul:
-                newData = nNum(nLeft(*node)) * nNum(nRight(*node));
+                newData = nNum(L(*node)) * nNum(R(*node));
                 break;
             
             case Div:
-                newData = nNum(nLeft(*node)) / nNum(nRight(*node));
+                newData = nNum(L(*node)) / nNum(R(*node));
                 break;
 
             case Pow:
-                newData = pow(nNum(nLeft(*node)), nNum(nRight(*node)));
+                newData = pow(nNum(L(*node)), nNum(R(*node)));
                 break;
             
             default: return TreeUnknownOperand;
@@ -345,6 +426,8 @@ int treeMakeSimpleOperand(TreeNode **node, enum OperandType type) {
 
         err |= treeNodeDtor(*node);
         err |= newNumNode(node, Numeral, newData);
+
+        return err;
     }
 
     if (type == Pow)
@@ -359,9 +442,9 @@ int treeMakeSimpleOperand(TreeNode **node, enum OperandType type) {
     //Add or Sub
     double neutral = 0;
 
-    if (nType(nLeft(*node)) == Numeral && nNum(nLeft(*node)) == neutral) 
+    if (nType(L(*node)) == Numeral && nNum(L(*node)) == neutral) 
         err |= treeMakeAncRgt(node);
-    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == neutral)
+    if (nType(R(*node)) == Numeral && nNum(R(*node)) == neutral)
         err |= treeMakeAncLft(node);
     //
     
@@ -372,18 +455,18 @@ int treeMakeSimplePow(TreeNode **node) {
     catchNullptr( node, TreeIsNull);
     catchNullptr(*node, TreeIsNull);
 
-    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 1)
+
+    if (nType(R(*node)) == Numeral && nNum(R(*node)) == 1)
         return treeMakeAncLft(node);
 
-    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 0) {
-        // fprintf(stderr, "here!\n");
+    if (nType(R(*node)) == Numeral && nNum(R(*node)) == 0) {
         int err  = treeNodeDtor(*node);
             err |= newNumNode(node, Numeral, 1);
 
         return err;
     }
 
-    if (nType(nLeft(*node)) == Numeral && (nNum(nLeft(*node)) == 1 || nNum(nLeft(*node)) == 0))
+    if (nType(L(*node)) == Numeral && (nNum(L(*node)) == 1 || nNum(L(*node)) == 0)) 
         return treeMakeAncLft(node);
     
     return TreeIsOk;
@@ -393,12 +476,14 @@ int treeMakeSimpleMul(TreeNode **node) {
     catchNullptr( node, TreeIsNull);
     catchNullptr(*node, TreeIsNull);
 
-    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 1)
+    if (nType(R(*node)) == Numeral && nNum(R(*node)) == 1)
         return treeMakeAncLft(node);
-    if (nType(nLeft(*node)) == Numeral  && nNum(nLeft(*node))  == 1)
+    if (nType(L(*node)) == Numeral  && nNum(L(*node))  == 1)
         return treeMakeAncRgt(node);
 
-    if (nType(nRight(*node)) == Numeral && (nNum(nRight(*node)) == 0 || nNum(nLeft(*node)) == 0)) {
+    // fprintf(stderr, "here! %08X -> %d\n", nRight(*node), nType(nRight(*node)));
+    if ((nType(R(*node)) == Numeral && nNum(R(*node)) == 0) || 
+        (nType(L( *node)) == Numeral && nNum(L( *node)) == 0)) {
         int err  = treeNodeDtor(*node);
             err |= newNumNode(node, Numeral, 0);
 
@@ -412,12 +497,12 @@ int treeMakeSimpleDiv(TreeNode **node) {
     catchNullptr( node, TreeIsNull);
     catchNullptr(*node, TreeIsNull);
 
-    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 0) return TreeDivisionByZero;
+    if (nType(R(*node)) == Numeral && nNum(R(*node)) == 0) return TreeDevisionByZero;
 
-    if (nType(nRight(*node)) == Numeral && nNum(nRight(*node)) == 1)
+    if (nType(R(*node)) == Numeral && nNum(R(*node)) == 1)
         return treeMakeAncLft(node);
 
-    if (nType(nLeft(*node)) == Numeral  && nNum(nLeft(*node)) == 0)
+    if (nType(L(*node)) == Numeral  && nNum(L(*node)) == 0)
         return treeMakeAncLft(node);
     
     return TreeIsOk;
@@ -426,11 +511,11 @@ int treeMakeSimpleDiv(TreeNode **node) {
 static int treeMakeAncRgt(TreeNode **node) {
     catchNullptr(    node     , TreeIsNull);
     catchNullptr(   *node     , TreeIsNull);
-    catchNullptr(nRight(*node), TreeIsNull);
+    catchNullptr(R(*node), TreeIsNull);
 
-    int err = treeNodeDtor(nLeft(*node));
+    int err = treeNodeDtor(L(*node));
     free(*node);
-    *node = nRight(*node);
+    *node = R(*node);
 
     return err;
 }
@@ -438,11 +523,11 @@ static int treeMakeAncRgt(TreeNode **node) {
 static int treeMakeAncLft(TreeNode **node) {
     catchNullptr(    node    , TreeIsNull);
     catchNullptr(   *node    , TreeIsNull);
-    catchNullptr(nLeft(*node), TreeIsNull);
+    catchNullptr(L(*node), TreeIsNull);
 
-    int err = treeNodeDtor(nRight(*node));
+    int err = treeNodeDtor(R(*node));
     free(*node);
-    *node = nLeft(*node);
+    *node = L(*node);
 
     return err;
 } 
@@ -453,25 +538,84 @@ TreeNode* treeFindVarriable(TreeNode *node, int *err) {
     TreeNode *lftRes = nullptr;
     TreeNode *rgtRes = nullptr;
 
+    // fprintf(stderr, "%08X -> %d\n", node, node -> type);
+
     switch (nType(node)) {
         case Numeral:
             return nullptr;
         
         case Varriable:
+            // fprintf(stderr, "!!%08X -> %d\n", node, node -> type);
             return node;
 
         case Operand:
-             lftRes = treeFindVarriable(nLeft(node), err);
-             rgtRes = treeFindVarriable(nLeft(node), err);
+             lftRes = treeFindVarriable(L(node), err);
+             rgtRes = treeFindVarriable(R(node), err);
 
-            if (lftRes == nullptr && rgtRes == nullptr);
+            // fprintf(stderr, "%08X - %08X\n", lftRes, rgtRes);
+
+            if (lftRes == nullptr && rgtRes == nullptr)
                 return nullptr;
+
             if (lftRes == nullptr)
                 return rgtRes;
+
             
             return lftRes;
         
         default: return nullptr;
+    }
+}
+
+int vocabularyDtor(Vocabulary *voc) {
+    catchNullptr(voc, TreeIsNull);
+
+    for (size_t cur = 0; cur < voc -> size; cur++)
+        voc -> var[cur] = nullptr;
+    voc -> size = 0;
+
+    return TreeIsOk;
+}
+
+Elem_t getVarValue(Vocabulary *varList, const char *varName) {
+    catchNullptr(varList, POISON);
+    catchNullptr(varName, POISON);
+
+    for (size_t cur = 0; cur < varList -> size; ++cur)
+        if (!strcmp(varName, varList -> var[cur]))
+            return varList -> value[cur];
+
+    return POISON;
+}
+
+int setVarValue(Vocabulary *varList, const char *varName, Elem_t value) {
+    catchNullptr(varList, EXIT_FAILURE);
+    catchNullptr(varName, EXIT_FAILURE);
+
+    fprintf(stderr, "%d", varList -> size);
+    for (size_t cur = 0; cur < varList -> size; ++cur)
+        if (!strcmp(varName, varList -> var[cur])) {
+            varList -> value[cur] = value;
+            return EXIT_SUCCESS;
+        }
+
+    return EXIT_FAILURE;
+}
+
+void updateNode(TreeNode *node, Vocabulary *varList) {
+    if (node == nullptr) return;
+
+    updateNode( L(node), varList);
+    updateNode(R(node), varList);
+
+    if ( L(node) != nullptr) node -> size +=  L(node) -> size;
+    if (R(node) != nullptr) node -> size += R(node) -> size;
+
+    if (node -> size > MAX_NODE_SIZE && DESES.usedDes < DESIGNATIONS_SIZE && node -> nodeName == nullptr) {
+        DESES.nodes[DESES.usedDes] = node;
+        node -> nodeName = DESES.desig[DESES.usedDes++];
+        node ->   size   =             1               ;
+        // fprintf(stderr, "%08X\n", node);
     }
 }
 

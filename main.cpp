@@ -1,5 +1,6 @@
-#include "source/tree.h"
+#include "source/task.h"
 #include "source/config.h"
+#include <string.h>
 
 int main(int argc, char *argv[]) {
     const char  *inputFileName =  DEFAULT_IN_FILE_NAME;
@@ -25,28 +26,39 @@ int main(int argc, char *argv[]) {
     err = treeCtor(&head);
     if (err) return EXIT_FAILURE;
 
-    err = treeLoadBase(&head, inputFileName);
+    Vocabulary varList = {};
+
+    FILE *stream = texStart(outputFileName);
+    if (err) return EXIT_FAILURE;
+
+    err = treeLoadBase(&head, inputFileName, &varList);
     if (err) return EXIT_FAILURE;
 
     treeGraphVizDump(&head, "logs/graph.dot", ++pic);
-    
+
+    err = texPrintInit(&head, &varList, stream);
+    if (err) return EXIT_FAILURE;
 
     Tree difTree = {};
     err = treeCtor(&difTree);
     if (err) return EXIT_FAILURE;
 
-
-    difTree.tree = treeDifferential(head.tree, &err);
+    difTree.tree = treeDifferential(head.tree, &varList, &err, stream);
     if (err) return EXIT_FAILURE;
 
     treeGraphVizDump(&difTree, "logs/graph.dot", ++pic);
 
-    err = treeMakeSimple(&(difTree.tree));
+    err = texSimplify(&difTree, &varList, stream);
     if (err) return EXIT_FAILURE;
 
     treeGraphVizDump(&difTree, "logs/graph.dot", ++pic);
 
-    err = treePrintEquat(&difTree, outputFileName);
+    err = texTeylor(&head, &varList, ((argc > 3)? atoi(argv[3]) : 5), stream);
+    if (err) return err;
+
+    treeGraphVizDump(&difTree, "logs/graph.dot", ++pic);
+
+    err = texEnd(stream);
     if (err) return EXIT_FAILURE;
 
     return EXIT_SUCCESS;

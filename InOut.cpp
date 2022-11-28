@@ -1,5 +1,7 @@
 #include "source/tree.h"
 #include "source/config.h"
+#include "headers/calc.h"
+#include "source/DSL.h"
 #include <cstdarg>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -15,15 +17,15 @@ static assignBuffer(char **buffer, const char *fileName);
 
 static size_t getFileSize(const char *fileName);
 
-int treeLoadBase(Tree *head, const char *fileName) {
+int treeLoadBase(Tree *head, const char *fileName, Vocabulary *varList) {
     catchNullptr(  head  , TreeIsNull);
     catchNullptr(fileName, TreeIsNull);
 
     char *buffer = nullptr;
-    int err = assignBuffer(&buffer, fileName);
+    size_t err = assignBuffer(&buffer, fileName);
     if (err) return err;
 
-    err = treeBaseScanf(&(head -> tree), &buffer);
+    head -> tree = getG(&buffer, varList, &err);
     if (err) return err;
 
     // fprintf(stderr, "Suka!\n");
@@ -62,13 +64,13 @@ static double getNum(char *buf);
 
 static size_t getType(char *buf);
 
-static int getOneArg(TreeNode **node, enum OperandType type, char **buffer);
+static int getOneArg(TreeNode **node, enum OperandType type, char **buffer, Vocabulary *varList);
 
-static int getTwoArgs(TreeNode **node, char **buffer);
+static int getTwoArgs(TreeNode **node, char **buffer, Vocabulary *varList);
 
-static int getArg(TreeNode **node, char **buffer);
+static int getArg(TreeNode **node, char **buffer, Vocabulary *varList);
 
-int treeBaseScanf(TreeNode **node, char **buffer) {
+int treeBaseScanf(TreeNode **node, char **buffer, Vocabulary *varList) {
     catchNullptr(buffer, TreeFileInErr);
 
     int err = EXIT_SUCCESS;
@@ -85,32 +87,32 @@ int treeBaseScanf(TreeNode **node, char **buffer) {
 
     if (CUR_SYMB == ')') return TreeFileInErr;
 
-    if (strstr(CUR_STR, "sin") == CUR_STR) {
-        err = getOneArg(node, Sin, buffer);
+    if (!strncmp(CUR_STR, "sin", 3)) {
+        err = getOneArg(node, Sin, buffer, varList);
         return err;
     }
 
-    if (strstr(CUR_STR, "cos") == CUR_STR) {
-        err = getOneArg(node, Cos, buffer);
+    if (!strncmp(CUR_STR, "cos", 3)) {
+        err = getOneArg(node, Cos, buffer, varList);
         return err;
     }
 
-    if (strstr(CUR_STR, "ln") == CUR_STR) {
-        err = getOneArg(node, Log, buffer);
+    if (!strncmp(CUR_STR, "ln", 2)) {
+        err = getOneArg(node, Log, buffer, varList);
         return err;
     }
 
     if (CUR_SYMB != '(') {
-        err = getArg(node, buffer);
+        err = getArg(node, buffer, varList);
         return err;
     }
 
-    err = getTwoArgs(node, buffer);
+    err = getTwoArgs(node, buffer, varList);
 
     return err;
 }
 
-int treePrintEquat(Tree *head, const char *fileName) {
+int treePrintEquat(Tree *head, Vocabulary *varList, const char *fileName) {
     catchNullptr(  head  , TreeIsNull);
     catchNullptr(fileName, TreeIsNull);
 
@@ -118,7 +120,7 @@ int treePrintEquat(Tree *head, const char *fileName) {
     catchNullptr(stream, TreeFileInErr);
 
     fprintf(stream, "$$");
-    int err = treePrintNode(head -> tree, stream);
+    int err = treePrintNode(head -> tree, varList, stream);
     if (err) return err;
     fprintf(stream, "$$\n");
 
@@ -127,11 +129,16 @@ int treePrintEquat(Tree *head, const char *fileName) {
     return TreeIsOk;
 }
 
-int treePrintNode(TreeNode *node, FILE *stream) {
+int treePrintNode(TreeNode *node, Vocabulary *varList, FILE *stream, bool cut) {
     catchNullptr( node , TreeIsNull);
     catchNullptr(stream, TreeIsNull);
 
-    int      err    = EXIT_SUCCESS;
+    int err = EXIT_SUCCESS;
+
+    if (cut && node -> nodeName != nullptr) {
+        fprintf(stream, node -> nodeName);
+        return TreeIsOk;
+    }
 
     switch (node -> type) {
         case Numeral:
@@ -143,68 +150,75 @@ int treePrintNode(TreeNode *node, FILE *stream) {
             return TreeIsOk;
 
         case Operand:
-            fprintf(stream, "(");
             switch(node -> data.op) {
                 case Add:
-                    err |= treePrintNode(node -> lft, stream);
+                    fprintf(stream, "(");
+                    err |= treePrintNode(node -> lft, varList, stream, 1);
                     fprintf(stream, " + ");
-                    err |= treePrintNode(node -> rgt, stream);
+                    err |= treePrintNode(node -> rgt, varList, stream, 1);
+                    fprintf(stream, ")");
+
 
                     break;
 
                 case Sub:
-                    err |= treePrintNode(node -> lft, stream);
+                    fprintf(stream, "(");
+                    err |= treePrintNode(node -> lft, varList, stream, cut);
                     fprintf(stream, " - ");
-                    err |= treePrintNode(node -> rgt, stream);
+                    err |= treePrintNode(node -> rgt, varList, stream, cut);
+                    fprintf(stream, ")");
 
                     break;
 
                 case Mul:
-                    err |= treePrintNode(node -> lft, stream);
+                    err |= treePrintNode(node -> lft, varList, stream, cut);
                     fprintf(stream, " \\cdot ");
-                    err |= treePrintNode(node -> rgt, stream);
+                    err |= treePrintNode(node -> rgt, varList, stream, cut);
 
                     break;
 
                 case Div: 
                     fprintf(stream, " \\frac{ ");
-                    err |= treePrintNode(node -> lft, stream);
+                    err |= treePrintNode(node -> lft, varList, stream, cut);
                     fprintf(stream, "} {");
-                    err |= treePrintNode(node -> rgt, stream);
+                    err |= treePrintNode(node -> rgt, varList, stream, cut);
                     fprintf(stream, "}");
 
                     break;
 
                 case Pow:
-                    err |= treePrintNode(node -> lft, stream);
+                    if (nOp(L(node)) >= FuncStart)
+                        fprintf(stream, "(");
+                    err |= treePrintNode(node -> lft, varList, stream, cut);
+                    if (nOp(L(node)) >= FuncStart)
+                        fprintf(stream, ")");
                     fprintf(stream, "^{");
-                    err |= treePrintNode(node -> rgt, stream);
+                    err |= treePrintNode(node -> rgt, varList, stream, cut);
                     fprintf(stream, "}");
 
                     break;
 
                 case Sin:
                     fprintf(stream, " \\sin{");
-                    err |= treePrintNode(node -> rgt, stream);
+                    err |= treePrintNode(node -> rgt, varList, stream, cut);
                     fprintf(stream, "}");
 
                     break;
 
                 case Cos:
                     fprintf(stream, " \\cos{");
-                    err |= treePrintNode(node -> rgt, stream);
+                    err |= treePrintNode(node -> rgt, varList, stream, cut);
                     fprintf(stream, "}");
 
                     break;
 
                 case Log:
                     fprintf(stream, " \\ln{");
-                    err |= treePrintNode(node -> rgt, stream);
+                    err |= treePrintNode(node -> rgt, varList, stream, cut);
                     fprintf(stream, "}");
 
                     break;
             }
-            fprintf(stream, ")");
 
             return err;
         
@@ -304,8 +318,8 @@ void treePrintNodeGrVz(TreeNode *tree, size_t *cur, FILE *stream) {
             }
             break;
     }
-    fprintf(stream, " } | LeftSon: %08X | RigthSon: %08X}\"];\n",
-                         tree -> lft,    tree -> rgt
+    fprintf(stream, " } |  Size: %zu  | LeftSon: %08X | RigthSon: %08X}\"];\n",
+                         tree -> size,  tree -> lft,    tree -> rgt
             );
     
     if (tree -> lft != nullptr) {
@@ -320,7 +334,7 @@ void treePrintNodeGrVz(TreeNode *tree, size_t *cur, FILE *stream) {
     }
 }
 
-static int getArg(TreeNode **node, char **buffer) {
+static int getArg(TreeNode **node, char **buffer, Vocabulary *varList) {
     catchNullptr( node ,  TreeIsNull  );
     catchNullptr(buffer, TreeFileInErr);
 
@@ -337,17 +351,19 @@ static int getArg(TreeNode **node, char **buffer) {
     char  *data = getVar(CUR_STR);
     CUR_STR     = skipBuf(CUR_STR);
     NEXT_SYMB;
+    
+    varList -> var[varList -> size++] = data;
 
     return newVarNode(node, type, data);
 }
 
-static int getOneArg(TreeNode **node, enum OperandType type, char **buffer) {
+static int getOneArg(TreeNode **node, enum OperandType type, char **buffer, Vocabulary *varList) {
     catchNullptr( node ,  TreeIsNull  );
     catchNullptr(buffer, TreeFileInErr);
 
     int err = newOpNode(node, Operand, type);
     CUR_STR = skipBuf(CUR_STR); 
-    err |= treeBaseScanf(&((*node) -> rgt), buffer);
+    err |= treeBaseScanf(&((*node) -> rgt), buffer, varList);
     
     if (CUR_SYMB != ')') return TreeFileInErr;
     NEXT_SYMB;
@@ -355,19 +371,19 @@ static int getOneArg(TreeNode **node, enum OperandType type, char **buffer) {
     return err;
 }
 
-static int getTwoArgs(TreeNode **node, char **buffer) {
+static int getTwoArgs(TreeNode **node, char **buffer, Vocabulary *varList) {
     catchNullptr( node ,  TreeIsNull  );
     catchNullptr(buffer, TreeFileInErr);
 
     int err = newOpNode(node, Operand, 0);
     
-    err |= treeBaseScanf(&((*node) -> lft), buffer);
+    err |= treeBaseScanf(&((*node) -> lft), buffer, varList);
 
     CUR_STR = flashBuf(CUR_STR);
     (*node) -> data.op = getOperand(CUR_SYMB);
     CUR_STR = skipBuf(CUR_STR);
 
-    err |= treeBaseScanf(&((*node) -> rgt), buffer);
+    err |= treeBaseScanf(&((*node) -> rgt), buffer, varList);
 
     if (CUR_SYMB != ')') return TreeFileInErr;
     NEXT_SYMB;
@@ -380,7 +396,7 @@ static size_t getOperand(char c) {
         case '+':  return Add;
         case '-':  return Sub;
         case '*':  return Mul;
-        case '\\': return Div;
+        case '/': return Div;
         case '^':  return Pow;
 
         default:   return None;
