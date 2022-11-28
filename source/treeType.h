@@ -1,14 +1,15 @@
 #pragma once
 
 enum OperandType {
-    Sin = 1,
-    Cos = 2,
-    Add = 3,
-    Sub = 4,
-    Mul = 5,
-    Div = 6,
-    Log = 7,
-    Pow = 8,
+        Add   = 1,
+        Sub   = 2,
+        Mul   = 3,
+        Div   = 4,
+        Pow   = 5,
+    FuncStart = 6,
+        Sin   = 6,
+        Cos   = 7,
+        Log   = 8,
 };
 
 enum  NodeType { 
@@ -18,7 +19,7 @@ enum  NodeType {
      Numeral  = 3,
 };
 
-typedef char* Elem_t;
+typedef double Elem_t;
 
-const  Elem_t       POISON     = nullptr;
+const  Elem_t       POISON     =   1e9  ;
 const unsigned MAX_STRING_SIZE =  10000 ;

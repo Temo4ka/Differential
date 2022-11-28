@@ -3,20 +3,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <math.h>
+#include "config.h"
 
 enum TreeErrors {
     TreeIsOk                 =       0,
     TreeIsNull               = 1 <<  0,
     TreeFileInErr            = 1 <<  1,
-    TreeIsInActive           = 1 <<  2,
-    TreeTypeIsNone           = 1 <<  3,
-    TreeFileOutErr           = 1 <<  4,
-    TreeDivisionByZero       = 1 <<  5,
-    TreeUnknownOperand       = 1 <<  6,
-    TreeDoubleDestruction    = 1 <<  7,
-    TreeDoubleConstruction   = 1 <<  8,
-    TreeGraphVizExecutionErr = 1 <<  9,
+    TreeFileOutErr           = 1 <<  2,
+    TreeDataPoison           = 1 <<  3,
+    TreeIsInActive           = 1 <<  4,
+    TreeTypeIsNone           = 1 <<  5,
+    TreeDevisionByZero       = 1 <<  6,
+    TreeUnknownOperand       = 1 <<  7,
+    TreeDoubleDestruction    = 1 <<  8,
+    TreeDoubleConstruction   = 1 <<  9,
+    TreeGraphVizExecutionErr = 1 << 10,
 };
 
 enum TreeStatus {
@@ -29,7 +31,6 @@ enum Result {
      Found   = 1, 
 };
 
-
 struct TreeInfo {
     size_t  line   =    0   ;
 
@@ -40,6 +41,7 @@ struct TreeInfo {
 };
 
 struct TreeNode {
+    const char *nodeName = nullptr;
 
     enum NodeType type = None;
 
@@ -54,6 +56,8 @@ struct TreeNode {
 
     TreeNode    *rgt   =  nullptr;
     TreeNode    *lft   =  nullptr;
+
+    size_t      size   =     1   ;
 };
 
 
@@ -62,6 +66,42 @@ struct Tree {
     TreeInfo    info   =    {}   ;
      size_t     size   =    0    ;
     TreeStatus status  = InActive;
+};
+
+struct NodesDes {
+    size_t usedDes = 0;
+
+    TreeNode *nodes[DESIGNATIONS_SIZE] = {};
+
+    const   char   *desig[DESIGNATIONS_SIZE] = {
+        "\\tau",
+        "\\alpha",
+        "\\beta",
+        "\\gamma",
+        "\\Delta",
+        "\\xi",
+        "\\sigma",
+        "\\varphi",
+        "\\psi",
+        "\\omega"
+        "\\varepsilon",
+        "\\zeta",
+        "\\eta",
+        "\\theta",
+        "\\iota",
+        "\\varkappa",
+        "\\lambda",
+        "\\mu",
+        "\\nu",
+        "\\upsilon"
+    };
+};
+
+struct Vocabulary {
+    NodesDes    designations     = {};
+      char   *var[MAX_VOC_SIZE]  = {};
+     Elem_t  value[MAX_VOC_SIZE] = {};
+     size_t        size          =  0;
 };
 
 #define treeCtor(TREE) _treeCtor((TREE), #TREE, __FILE__, __PRETTY_FUNCTION__, __LINE__)
@@ -93,11 +133,13 @@ int treeHeadDtor(Tree *root);
 
 int treeNodeDtor(TreeNode *node);
 
-int treeLoadBase(Tree *head, const char *fileName);
+int vocabularyDtor(Vocabulary *voc);
 
-int treeBaseScanf(TreeNode **node, char **buffer);
+int treeLoadBase(Tree *head, const char *fileName, Vocabulary *varList);
 
-int treeMakeSimple(TreeNode **node);
+int treeBaseScanf(TreeNode **node, char **buffer, Vocabulary *varList);
+
+int treeSimplify(TreeNode **node);
 
 int treeMakeSimpleOperand(TreeNode **node, enum OperandType type);
 
@@ -107,11 +149,11 @@ int treeMakeSimpleMul(TreeNode **node);
 
 int treeMakeSimpleDiv(TreeNode **node);
 
-TreeNode* treeDifferential(TreeNode *node, int *err);
+TreeNode* treeDifferential(TreeNode *node, Vocabulary *varList, int *err, FILE *stream = nullptr);
 
-TreeNode* treeCopy(TreeNode *node, int *err);
+TreeNode* treeCopy(TreeNode *node, Vocabulary *varList, int *err);
 
-TreeNode* diffPow(TreeNode *node, int *err);
+TreeNode* diffPow(TreeNode *node, Vocabulary *varList, int *err, FILE *stream = nullptr);
 
 TreeNode *treeDoubleArgumentOper(TreeNode *node1, TreeNode *node2, enum OperandType type, int *err);
 
@@ -121,9 +163,9 @@ TreeNode *treeNeg(TreeNode *node, int *err);
 
 TreeNode *treeRev(TreeNode *node, int *err);
 
-int treePrintEquat(Tree *head, const char *inFileName);
+int treePrintEquat(Tree *head, Vocabulary *varList, const char *inFileName);
 
-int treePrintNode(TreeNode *node, FILE *stream);
+int treePrintNode(TreeNode *node, Vocabulary *varList, FILE *stream, bool cut = 0);
 
 const char *treeGraphVizDump(Tree *tree, const char *fileName, int cmd);
 
@@ -134,3 +176,9 @@ void treePrintErrorMessage(int error);
 int treeNew(TreeNode **node, char *curCmd);
 
 TreeNode* treeFindVarriable(TreeNode *node, int *err);
+
+Elem_t getVarValue(Vocabulary *varList, const char *varName);
+
+int setVarValue(Vocabulary *varList, const char *varName, Elem_t value);
+
+void updateNode(TreeNode *node, Vocabulary *varList);
